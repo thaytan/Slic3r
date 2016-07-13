@@ -30,8 +30,8 @@ use Slic3r::Test;
         ok check_angle([$lower], $bridge, $expected_angle, $tolerance), 'correct bridge angle for O-shaped overhang';
     };
 
-    $test->([20,10], 0, 90);
-    $test->([10,20], 0, 0);
+    $test->([20,10], 0, 90, 11);
+    $test->([10,20], 0, 0, 11);
     $test->([20,10], 45, 135, 20);
     $test->([20,10], 135, 45, 20);
 }

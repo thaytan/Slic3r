@@ -5,24 +5,6 @@
 
 namespace Slic3r {
 
-class BridgeDirectionComparator {
-    public:
-    std::map<double,double> dir_coverage;  // angle => score
-    
-    BridgeDirectionComparator(double _extrusion_width)
-        : extrusion_width(_extrusion_width)
-    {};
-    
-    // the best direction is the one causing most lines to be bridged (thus most coverage)
-    bool operator() (double a, double b) {
-        // Initial sort by coverage only - comparator must obey strict weak ordering
-        return (this->dir_coverage[a] > this->dir_coverage[b]);
-    };
-    
-    private:
-    double extrusion_width;
-};
-
 BridgeDetector::BridgeDetector(const ExPolygon &_expolygon, const ExPolygonCollection &_lower_slices,
     coord_t _extrusion_width)
     : expolygon(_expolygon), lower_slices(_lower_slices), extrusion_width(_extrusion_width),
@@ -108,10 +90,11 @@ BridgeDetector::detect_angle()
     if (Slic3r::Geometry::directions_parallel(angles.front(), angles.back(), min_resolution))
         angles.pop_back();
     
-    BridgeDirectionComparator bdcomp(this->extrusion_width);
-    std::map<double,double> dir_avg_length;
     double line_increment = this->extrusion_width;
     bool have_coverage = false;
+    double best_score = 0;
+    double best_angle = 0;
+
     for (std::vector<double>::const_iterator angle = angles.begin(); angle != angles.end(); ++angle) {
         Polygons my_clip_area = clip_area;
         ExPolygons my_anchors = this->_anchors;
@@ -146,44 +129,45 @@ BridgeDetector::detect_angle()
         
         std::vector<double> lengths;
         double total_length = 0;
+        double max_length = 0;
+        unsigned int line_count = 0;
+        double score;
+
         for (Lines::const_iterator line = clipped_lines.begin(); line != clipped_lines.end(); ++line) {
             double len = line->length();
-            lengths.push_back(len);
+
+            line_count++;
+            max_length = std::max (max_length, len);
             total_length += len;
         }
         if (total_length) have_coverage = true;
         
-        // sum length of bridged lines
-        bdcomp.dir_coverage[*angle] = total_length;
-        
         /*  The following produces more correct results in some cases and more broken in others.
             TODO: investigate, as it looks more reliable than line clipping. */
         // $directions_coverage{$angle} = sum(map $_->area, @{$self->coverage($angle)}) // 0;
-        
-        // max length of bridged lines
-        dir_avg_length[*angle] = !lengths.empty()
-            ? *std::max_element(lengths.begin(), lengths.end())
-            : 0;
+
+        // Compute score as total metric, derated by
+        // the length of the longest line, which gives
+        // a bonus to similar coverage using shorter lines
+        score = total_length - max_length;
+
+        // Update best score / angle tracking
+        if (score > best_score) {
+            best_score = score;
+            best_angle = *angle;
+        }
+
+    #ifdef SLIC3R_DEBUG
+    printf("  bridge angle %d length %f max len %f lines %u score %f\n",
+            (int)Slic3r::Geometry::rad2deg(*angle),
+            total_length, max_length, line_count, score);
+    #endif
     }
     
     // if no direction produced coverage, then there's no bridge direction
     if (!have_coverage) return false;
     
-    // sort directions by coverage - most coverage first
-    std::sort(angles.begin(), angles.end(), bdcomp);
-    this->angle = angles.front();
-    
-    // if any other direction is within extrusion width of coverage, prefer it if shorter
-    // TODO: There are two options here - within width of the angle with most coverage, or within width of the currently perferred?
-    double most_coverage_angle = this->angle;
-    for (std::vector<double>::const_iterator angle = angles.begin() + 1;
-        angle != angles.end() && bdcomp.dir_coverage[most_coverage_angle] - bdcomp.dir_coverage[*angle] < this->extrusion_width;
-        ++angle
-    ) {
-        if (dir_avg_length[*angle] < dir_avg_length[this->angle]) {
-            this->angle = *angle;
-        }
-    }
+    this->angle = best_angle;
     
     if (this->angle >= PI) this->angle -= PI;
     
