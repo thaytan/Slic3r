@@ -1,4 +1,4 @@
-use Test::More tests => 16;
+use Test::More tests => 23;
 use strict;
 use warnings;
 
@@ -102,8 +102,11 @@ sub check_angle {
     # our epsilon is equal to the steps used by the bridge detection algorithm
     ###use XXX; YYY [ rad2deg($result), $expected ];
     # returned value must be non-negative, check for that too
-    my $delta=rad2deg($result) - $expected;
+    my $deg = rad2deg($result);
+    my $delta=$deg - $expected;
     $delta-=180 if $delta>=180 - epsilon;
+
+    cmp_ok (abs($delta), '<', $tolerance, "Expected angle $expected got $deg");
     return defined $result && $result>=0 && abs($delta) < $tolerance;
 }
 
